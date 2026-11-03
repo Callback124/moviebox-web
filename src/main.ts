@@ -47,15 +47,27 @@ if (btnSettings) btnSettings.innerHTML = ICON.gear;
 const view = $('#view');
 const spinner = '<div class="center"><div class="spinner"></div></div>';
 
+import { HOME_FALLBACK } from './homeFallback';
+
 /* ---------- MovieBox API Client ---------- */
 let homeCache: any = null;
 
 async function getHomeFeed(): Promise<any> {
   if (homeCache) return homeCache;
-  const res = await fetch('/api/home');
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  const data = await res.json();
-  homeCache = data?.data;
+  try {
+    const res = await fetch('/api/home');
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.data?.operatingList?.length) {
+        homeCache = data.data;
+        return homeCache;
+      }
+    }
+  } catch (e) {
+    console.warn('Live home fetch fallback:', e);
+  }
+  // Resilient fallback with authentic MovieBox operatingList
+  homeCache = (HOME_FALLBACK as any)?.data;
   return homeCache;
 }
 

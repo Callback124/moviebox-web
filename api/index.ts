@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import http from 'http';
 import https from 'https';
+import { HOME_FALLBACK } from './homeFallback';
 
 const app = express();
 
@@ -18,33 +19,72 @@ app.use((req, res, next) => {
 });
 
 const MOVIEBOX_HEADERS: Record<string, string> = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36',
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
   'Origin': 'https://movieboxph.org',
   'Referer': 'https://movieboxph.org/',
   'x-client-info': '{"timezone":"Asia/Calcutta"}',
-  'Accept': '*/*',
+  'Accept': 'application/json, text/plain, */*',
   'Accept-Language': 'en-US,en;q=0.9',
   'Connection': 'close'
 };
 
 const STATIC_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1aWQiOjEzNzc5NDUxNDIxODgwNDAwNDgsImF0cCI6MywiZXh0IjoiMTc4OTkwNTk2NyIsImV4cCI6MTc5NzY4MTk2NywiaWF0IjoxNzg5OTA1NjY3fQ.nu-oeO3EcNKS1WUqxDeH2MKM7-v9-l1EPTvSmlQNiio';
 
+// In-memory 5-minute cache for Home Feed
+let homeFeedCache: any = null;
+let homeFeedCacheTime = 0;
+const CACHE_TTL_MS = 5 * 60 * 1000;
+
 const apiRouter = express.Router();
+
+// Helper to fetch with timeout and mirror fallback
+async function fetchWithFallback(urls: string[], init?: RequestInit): Promise<any> {
+  for (const url of urls) {
+    try {
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), 7000);
+      const res = await fetch(url, {
+        ...init,
+        headers: {
+          ...MOVIEBOX_HEADERS,
+          ...(init?.headers || {})
+        },
+        signal: controller.signal
+      });
+      clearTimeout(id);
+      if (res.ok) {
+        const json = await res.json();
+        if (json && (json.code === 0 || json.data)) {
+          return json;
+        }
+      }
+    } catch (e: any) {
+      console.warn(`Fetch error for ${url}:`, e?.message);
+    }
+  }
+  return null;
+}
 
 // 1. Home Feed (Hero Banners + Categorized Rows)
 apiRouter.get('/home', async (_req: Request, res: Response) => {
-  try {
-    const response = await fetch('https://h5-api.aoneroom.com/wefeed-h5api-bff/home', {
-      headers: MOVIEBOX_HEADERS
-    });
-    if (!response.ok) {
-      return res.status(response.status).json({ code: response.status, message: response.statusText });
-    }
-    const data = await response.json();
-    res.json(data);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  const now = Date.now();
+  if (homeFeedCache && (now - homeFeedCacheTime < CACHE_TTL_MS)) {
+    return res.json(homeFeedCache);
   }
+
+  const result = await fetchWithFallback([
+    'https://h5-api.aoneroom.com/wefeed-h5api-bff/home',
+    'https://movieboxph.org/wefeed-h5api-bff/home'
+  ]);
+
+  if (result && result.data?.operatingList?.length) {
+    homeFeedCache = result;
+    homeFeedCacheTime = now;
+    return res.json(result);
+  }
+
+  // Graceful fallback to verified authentic MovieBox production seed
+  res.json(HOME_FALLBACK);
 });
 
 // 2. Movie & Series Detail
@@ -53,10 +93,19 @@ apiRouter.get('/detail', async (req: Request, res: Response) => {
     const { subjectId, detailPath } = req.query;
     if (!subjectId) return res.status(400).json({ error: 'Missing subjectId' });
     
-    const url = `https://h5-api.aoneroom.com/wefeed-h5api-bff/detail?subjectId=${encodeURIComponent(String(subjectId))}&detailPath=${encodeURIComponent(String(detailPath || ''))}`;
-    const response = await fetch(url, { headers: MOVIEBOX_HEADERS });
-    const data = await response.json();
-    res.json(data);
+    const sid = encodeURIComponent(String(subjectId));
+    const spath = encodeURIComponent(String(detailPath || ''));
+    
+    const result = await fetchWithFallback([
+      `https://h5-api.aoneroom.com/wefeed-h5api-bff/detail?subjectId=${sid}&detailPath=${spath}`,
+      `https://movieboxph.org/wefeed-h5api-bff/detail?subjectId=${sid}&detailPath=${spath}`
+    ]);
+
+    if (result) {
+      return res.json(result);
+    }
+
+    res.status(502).json({ code: 502, message: 'Detail upstream unavailable' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -66,16 +115,19 @@ apiRouter.get('/detail', async (req: Request, res: Response) => {
 apiRouter.post('/search-suggest', async (req: Request, res: Response) => {
   try {
     const { keyword } = req.body;
-    const response = await fetch('https://h5-api.aoneroom.com/wefeed-h5api-bff/subject/search-suggest', {
+    const bodyStr = JSON.stringify({ keyword: keyword || '' });
+    
+    const result = await fetchWithFallback([
+      'https://h5-api.aoneroom.com/wefeed-h5api-bff/subject/search-suggest',
+      'https://movieboxph.org/wefeed-h5api-bff/subject/search-suggest'
+    ], {
       method: 'POST',
-      headers: {
-        ...MOVIEBOX_HEADERS,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ keyword: keyword || '' })
+      headers: { 'Content-Type': 'application/json' },
+      body: bodyStr
     });
-    const data = await response.json();
-    res.json(data);
+
+    if (result) return res.json(result);
+    res.json({ code: 0, data: { items: [] } });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -85,18 +137,23 @@ apiRouter.post('/search-suggest', async (req: Request, res: Response) => {
 apiRouter.post('/search', async (req: Request, res: Response) => {
   try {
     const { keyword, page = 1, perPage = 20 } = req.body;
-    const response = await fetch('https://h5-api.aoneroom.com/wefeed-h5api-bff/subject/search', {
+    const bodyStr = JSON.stringify({ keyword: keyword || '', page, perPage });
+
+    const result = await fetchWithFallback([
+      'https://h5-api.aoneroom.com/wefeed-h5api-bff/subject/search',
+      'https://movieboxph.org/wefeed-h5api-bff/subject/search'
+    ], {
       method: 'POST',
       headers: {
-        ...MOVIEBOX_HEADERS,
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${STATIC_TOKEN}`,
         'x-user': STATIC_TOKEN
       },
-      body: JSON.stringify({ keyword: keyword || '', page, perPage })
+      body: bodyStr
     });
-    const data = await response.json();
-    res.json(data);
+
+    if (result) return res.json(result);
+    res.json({ code: 0, data: { items: [], pager: { hasMore: false } } });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -109,15 +166,18 @@ const handlePlay = async (req: Request, res: Response) => {
     if (!subjectId) return res.status(400).json({ error: 'Missing subjectId' });
 
     const fetchPlay = async (s: string, e: string) => {
-      const playUrl = `https://movieboxph.org/wefeed-h5api-bff/subject/play?subjectId=${encodeURIComponent(String(subjectId))}&se=${s}&ep=${e}&detailPath=${encodeURIComponent(String(detailPath))}`;
-      const r = await fetch(playUrl, { 
+      const sid = encodeURIComponent(String(subjectId));
+      const spath = encodeURIComponent(String(detailPath));
+      const urls = [
+        `https://movieboxph.org/wefeed-h5api-bff/subject/play?subjectId=${sid}&se=${s}&ep=${e}&detailPath=${spath}`,
+        `https://h5-api.aoneroom.com/wefeed-h5api-bff/subject/play?subjectId=${sid}&se=${s}&ep=${e}&detailPath=${spath}`
+      ];
+      return fetchWithFallback(urls, {
         headers: {
-          ...MOVIEBOX_HEADERS,
           'Authorization': `Bearer ${STATIC_TOKEN}`,
           'x-user': STATIC_TOKEN
         }
       });
-      return r.json();
     };
 
     let playData = await fetchPlay(String(se), String(ep));
@@ -138,7 +198,7 @@ const handlePlay = async (req: Request, res: Response) => {
       }
     }
 
-    res.json(playData);
+    res.json(playData || { code: 0, data: { hasResource: false, streams: [] } });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
