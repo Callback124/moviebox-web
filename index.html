@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MovieBox</title>
+  <meta name="description" content="MovieBox - Movie & TV streaming discovery powered by MovieBox API" />
+  <meta property="og:title" content="MovieBox" />
+  <meta property="og:description" content="MovieBox - Movie & TV streaming discovery powered by MovieBox API" />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="#/home"><span class="wordmark">MOVIEBOX</span></a>
+  <nav class="tabs" id="tabs">
+    <a href="#/home" data-tab="home">Home</a>
+    <a href="#/browse/movie" data-tab="movie">Movies</a>
+    <a href="#/browse/tv" data-tab="tv">TV Shows</a>
+    <a href="#/browse/anime" data-tab="anime">Anime</a>
+    <a href="#/browse/hindi" data-tab="hindi">Hindi</a>
+  </nav>
+  <div class="actions">
+    <a class="icon-btn" href="#/search" title="Search" id="btn-search"></a>
+    <a class="icon-btn" href="#/mylist" title="My List" id="btn-list"></a>
+    <a class="icon-btn" href="#/history" title="History" id="btn-history"></a>
+    <button class="icon-btn" title="Settings" id="btn-settings"></button>
+  </div>
+</header>
+<main id="view"></main>
+<footer class="foot">
+  This product uses the TMDB API but is not endorsed or certified by TMDB. Streaming availability data provided by JustWatch.
+</footer>
+<div id="modal" class="modal hidden"></div>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

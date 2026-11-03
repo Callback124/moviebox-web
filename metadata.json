@@ -1,0 +1,6 @@
+{
+  "name": "CineScope PC - Movies & TV Streaming Studio",
+  "description": "High-performance PC desktop streaming software for movies, TV series, anime, and cinema discovery with built-in player and download manager.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
