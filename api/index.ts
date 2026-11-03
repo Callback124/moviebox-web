@@ -1,7 +1,7 @@
 import express, { Request, Response } from 'express';
 import http from 'http';
 import https from 'https';
-import { HOME_FALLBACK } from './homeFallback';
+import { HOME_FALLBACK } from '../src/homeFallback';
 
 const app = express();
 
